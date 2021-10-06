@@ -1,0 +1,45 @@
+#
+# Copyright (c) 2021 Red Hat, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# This file contains an OpenShift template that creates a route helping to
+# directly access the service in the development environment.
+
+apiVersion: v1
+kind: Template
+metadata:
+  name: routes
+
+objects:
+
+- apiVersion: route.openshift.io/v1
+  kind: Route
+  metadata:
+    name: events-mgmt
+    labels:
+      app: events-mgmt
+    annotations:
+      # The mechanism used to get events uses long polling, so we need to set a
+      # timeout large enough so that connections aren't closed while the server
+      # is still sending events.
+      haproxy.router.openshift.io/timeout: 1h
+  spec:
+    host: events-mgmt.apps-crc.testing
+    to:
+      kind: Service
+      name: events-mgmt-server
+    tls:
+      termination: reencrypt
+      insecureEdgeTerminationPolicy: Redirect

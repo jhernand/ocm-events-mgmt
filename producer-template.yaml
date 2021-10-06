@@ -1,0 +1,127 @@
+#
+# Copyright (c) 2021 Red Hat, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# This file contains an OpenShift template that creates all the objects needed
+# for a working installation of the events producer.
+
+apiVersion: v1
+kind: Template
+metadata:
+  name: producer
+parameters:
+
+- name: NAMESPACE
+  description: Namespace where the broker is running.
+
+- name: INSTALL
+  description: Indicates if required topics should be created.
+  value: "false"
+
+- name: IMAGE_REGISTRY
+  description: Image registry.
+
+- name: IMAGE_REPOSITORY
+  description: Image repository.
+
+- name: IMAGE_TAG
+  description: Image tag.
+
+- name: REPLICAS
+  description: Number of replicas to run.
+  value: "1"
+
+- name: MEMORY_REQUEST
+  description: Memory request.
+  value: "150Mi"
+
+- name: MEMORY_LIMIT
+  description: Memory limit.
+  value: "1Gi"
+
+- name: CPU_REQUEST
+  description: CPU request.
+  value: "50m"
+
+- name: CPU_LIMIT
+  description: CPU limit.
+  value: "1"
+
+objects:
+
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: events-mgmt-producer
+    labels:
+      app: events-mgmt-producer
+  data:
+    main.yaml: |
+      # Log configuration:
+      log:
+        level: debug
+
+      # Indicates if topics should be created:
+      install: ${INSTALL}
+
+      # Kafka settings:
+      kafka:
+        brokers:
+        - events-mgmt-broker.${NAMESPACE}.svc:9092
+        tls:
+          ca: !file /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt
+        input:
+          topic: ocm.db.changes
+          group: ocm.events.producer
+        output:
+          topic: ocm.events
+
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: events-mgmt-producer
+    labels:
+      app: events-mgmt-producer
+  spec:
+    selector:
+      matchLabels:
+        app: events-mgmt-producer
+    replicas: ${{REPLICAS}}
+    template:
+      metadata:
+        labels:
+          app: events-mgmt-producer
+      spec:
+        volumes:
+        - name: configs
+          configMap:
+            name: events-mgmt-producer
+        containers:
+        - name: producer
+          image: ${IMAGE_REGISTRY}/${IMAGE_REPOSITORY}:${IMAGE_TAG}
+          volumeMounts:
+          - name: configs
+            mountPath: /etc/events-mgmt/configs.d
+          command:
+          - /bin/events-mgmt
+          - producer
+          - /etc/events-mgmt/configs.d
+          resources:
+            requests:
+              memory: ${MEMORY_REQUEST}
+              cpu: ${CPU_REQUEST}
+            limits:
+              memory: ${MEMORY_LIMIT}
+              cpu: ${CPU_LIMIT}

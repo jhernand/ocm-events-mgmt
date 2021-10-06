@@ -1,0 +1,9 @@
+*.gz
+*.log
+*.tar
+.idea/
+/*-template.json
+/.venv/
+/events-mgmt
+/logs/
+__pycache__/

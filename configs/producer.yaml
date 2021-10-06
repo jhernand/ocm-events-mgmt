@@ -1,0 +1,43 @@
+#
+# Copyright (c) 2021 Red Hat, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# This is an example configuration file intended to run the producer in a local
+# development environment outside of a cluster. To use it copy it to your
+# favorite location, edit it, and run the service:
+#
+#  $ cp configs/producer.yml ~/my_producer.yml
+#  $ vi ~/my_producer.yml
+#  $ ./events-mgmt producer ~/my_producer.yml
+#
+# For more instructions on how to setup your development environment see the
+# `README.adoc` file.
+
+# Log configuration:
+log:
+  level: debug
+
+# In development environments we want to create the topics:
+install: true
+
+# Kafka settings:
+kafka:
+  brokers:
+  - localhost:9092
+  input:
+    topic: ocm.db.changes
+    group: ocm.events.producer
+  output:
+    topic: ocm.events

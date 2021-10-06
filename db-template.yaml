@@ -1,0 +1,136 @@
+#
+# Copyright (c) 2021 Red Hat, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# This file contains an OpenShift template that creates all the objects needed
+# for a working installation of the database.
+
+apiVersion: v1
+kind: Template
+metadata:
+  name: db
+parameters:
+
+- name: DB_NAME
+  description: Name for the database in the server.
+
+- name: DB_USER
+  description: User for the database server.
+
+- name: DB_PASSWORD
+  description: Password for the database user.
+
+- name: DB_ADMIN_PASSWORD
+  description: Password for the database administrator.
+
+objects:
+
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: events-mgmt-db
+    labels:
+      app: events-mgmt-db
+  spec:
+    selector:
+      matchLabels:
+        app: events-mgmt-db
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          app: events-mgmt-db
+      spec:
+        volumes:
+        - name: tls
+          secret:
+            secretName: events-mgmt-db-tls
+        - name: config
+          emptyDir: {}
+        - name: data
+          emptyDir: {}
+        initContainers:
+        - name: init
+          volumeMounts:
+          - name: tls
+            mountPath: /etc/pki/tls/pgsql
+          - name: config
+            mountPath: /opt/app-root/src/postgresql-cfg
+          - name: data
+            mountPath: /var/lib/pgsql/data
+          image: quay.io/centos/centos:8
+          command:
+          - bash
+          - -c
+          - |
+            # Install the TLS certificates:
+            install \
+            --mode=0600 \
+            /etc/pki/tls/pgsql/tls.crt \
+            /etc/pki/tls/pgsql/tls.key \
+            /var/lib/pgsql/data
+
+            # Create the TLS configuration:
+            cat > /opt/app-root/src/postgresql-cfg/tls.conf <<.
+            ssl = on
+            ssl_cert_file = '/var/lib/pgsql/data/tls.crt'
+            ssl_key_file = '/var/lib/pgsql/data/tls.key'
+            .
+
+            # Enable the query log:
+            cat > /opt/app-root/src/postgresql-cfg/log.conf <<.
+            log_destination = 'stderr'
+            log_statement = 'all'
+            logging_collector = off
+
+            # Enable logical replication:
+            wal_level = logical
+            .
+
+        containers:
+        - name: server
+          volumeMounts:
+          - name: config
+            mountPath: /opt/app-root/src/postgresql-cfg
+          - name: data
+            mountPath: /var/lib/pgsql/data
+          image: centos/postgresql-12-centos8
+          env:
+          - name: POSTGRESQL_DATABASE
+            value: ${DB_NAME}
+          - name: POSTGRESQL_USER
+            value: ${DB_USER}
+          - name: POSTGRESQL_PASSWORD
+            value: ${DB_PASSWORD}
+          - name: POSTGRESQL_ADMIN_PASSWORD
+            value: ${DB_ADMIN_PASSWORD}
+          ports:
+          - containerPort: 5432
+            protocol: TCP
+
+- apiVersion: v1
+  kind: Service
+  metadata:
+    name: events-mgmt-db
+    labels:
+      app: events-mgmt-db
+    annotations:
+      service.alpha.openshift.io/serving-cert-secret-name: events-mgmt-db-tls
+  spec:
+    selector:
+      app: events-mgmt-db
+    ports:
+    - port: 5432
+      targetPort: 5432
