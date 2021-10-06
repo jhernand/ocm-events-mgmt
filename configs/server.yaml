@@ -1,0 +1,54 @@
+#
+# Copyright (c) 2021 Red Hat, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# This is an example configuration file intended to run the service in a local
+# development environment outside of a cluster. To use it copy it to your
+# favorite location, edit it, and run the service:
+#
+#  $ cp configs/development.yml ~/my_server.yml
+#  $ vi ~/my_server.yml
+#  $ ./events-mgmt server ~/my_server.yml
+#
+# Note that you will need to change at least the `auth.client_id` and `auth.client_secret`
+# parameters. To find out the values ask in the #service-development channel.
+#
+# For more instructions on how to setup your development environment see the
+# `README.adoc` file.
+
+# Log configuration:
+log:
+  level: debug
+
+# In development environments we want to create the topics:
+install: true
+
+# Listeners:
+listeners:
+  api:
+    network: tcp
+    address: :8000
+
+# Settings to connect to other services:
+connection:
+  url: https://api.integration.openshift.com
+  tokens:
+  - !script/trim ocm token
+
+# Kafka settings:
+kafka:
+  brokers:
+  - localhost:9092
+  topic: ocm.events

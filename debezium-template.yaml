@@ -1,0 +1,203 @@
+#
+# Copyright (c) 2021 Red Hat, Inc.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+
+# This file contains an OpenShift template that creates all the objects needed
+# for the Debezium instance used in the development environment.
+
+apiVersion: v1
+kind: Template
+metadata:
+  name: debezium
+parameters:
+
+- name: NAMESPACE
+  description: Namespace where the broker is running.
+
+- name: DB_HOST
+  description: Database host name.
+
+- name: DB_PORT
+  description: Database port number.
+
+- name: DB_NAME
+  description: Database name.
+
+- name: DB_ADMIN_USER
+  description: Database administrator user.
+
+- name: DB_ADMIN_PASSWORD
+  description: Database administrator password.
+
+objects:
+
+- apiVersion: v1
+  kind: ConfigMap
+  metadata:
+    name: events-mgmt-debezium
+  data:
+    schema.sql: |
+      -- This creates the example tables that are used in the development
+      -- environment to simulate the database of a service.
+      create table clusters (
+        id text not null primary key,
+        name text
+      );
+
+      create table versions (
+        id text not null primary key,
+        name text
+      );
+
+    connect.properties: |
+      # Basic configuration:
+      bootstrap.servers=events-mgmt-broker.${NAMESPACE}.svc:9092
+      plugin.path=/opt/kafka/connect
+      offset.flush.interval.ms=10000
+      offset.storage.file.filename=/opt/kafka/data/connect.offsets
+
+      # We are not interested in the schema:
+      key.converter=org.apache.kafka.connect.json.JsonConverter
+      key.converter.schemas.enable=false
+      value.converter=org.apache.kafka.connect.json.JsonConverter
+      value.converter.schemas.enable=false
+
+      # Enable TLS:
+      security.protocol=SSL
+      ssl.truststore.location=/opt/kafka/data/service-ca.p12
+      ssl.truststore.password=password
+      consumer.security.protocol=SSL
+      consumer.ssl.truststore.location=/opt/kafka/data/service-ca.p12
+      consumer.ssl.truststore.password=password
+      producer.security.protocol=SSL
+      producer.ssl.truststore.location=/opt/kafka/data/service-ca.p12
+      producer.ssl.truststore.password=password
+
+    debezium.properties: |
+      # Basic configuration:
+      name=debezium
+      connector.class=io.debezium.connector.postgresql.PostgresConnector
+      database.hostname=${DB_HOST}
+      database.port=${DB_PORT}
+      database.dbname=${DB_NAME}
+      database.user=${DB_ADMIN_USER}
+      database.password=${DB_ADMIN_PASSWORD}
+      database.server.name=${DB_NAME}
+      plugin.name=pgoutput
+      snapshot.mode=never
+      slot.name=debezium
+      publication.name=debezium
+      publication.autocreate.mode=filtered
+
+      # We are only interested in the identifiers of some tables:
+      table.include.list=^public\\.(clusters|versions)$
+      column.include.list=^public\\.(clusters|versions)\\.id$
+
+      # By default Debezium sends changes for different tables to topics named
+      # after the schema and name of the table. But we want all the changes in
+      # the same topic to simplify the consumer. This transformation does that
+      # routing.
+      transforms=topic
+      transforms.topic.type=org.apache.kafka.connect.transforms.RegexRouter
+      transforms.topic.regex=.*
+      transforms.topic.replacement=ocm.db.changes
+
+    connect-log4j.properties: |
+      log4j.rootLogger=INFO, stdout
+      log4j.appender.stdout=org.apache.log4j.ConsoleAppender
+      log4j.appender.stdout.layout=org.apache.log4j.PatternLayout
+      log4j.appender.stdout.layout.ConversionPattern=[%d] %p %X{connector.context}%m (%c:%L)%n
+      log4j.logger.org.apache.zookeeper=ERROR
+      log4j.logger.org.reflections=ERROR
+
+- apiVersion: apps/v1
+  kind: Deployment
+  metadata:
+    name: events-mgmt-debezium
+    labels:
+      app: events-mgmt-debezium
+  spec:
+    selector:
+      matchLabels:
+        app: events-mgmt-debezium
+    replicas: 1
+    template:
+      metadata:
+        labels:
+          app: events-mgmt-debezium
+      spec:
+        volumes:
+        - name: config
+          configMap:
+            name: events-mgmt-debezium
+        - name: data
+          emptyDir: {}
+        initContainers:
+        - name: init-db
+          image: centos/postgresql-12-centos8
+          volumeMounts:
+          - name: config
+            mountPath: /etc/events-mgmt/configs.d
+          env:
+          - name: PGPASSWORD
+            value: ${DB_ADMIN_PASSWORD}
+          command:
+          - /bin/psql
+          - --host=${DB_HOST}
+          - --port=${DB_PORT}
+          - --file=/etc/events-mgmt/configs.d/schema.sql
+          - ${DB_NAME}
+          - ${DB_ADMIN_USER}
+        - name: init-tls
+          image: quay.io/jhernand/kafka:latest
+          volumeMounts:
+          - name: data
+            mountPath: /opt/kafka/data
+          command:
+          - bash
+          - -c
+          - |
+            # Convert the service CA certificate to PKCS12. Note that this needs
+            # to be done with tye 'keytool' command and the 'trustcacerts'
+            # option because otherwise the resulting PKCS12 file will not
+            # contain the bag attribute that identifies the certificate as a trust
+            # anchor.
+            keytool \
+            -import \
+            -trustcacerts \
+            -alias service-ca \
+            -file /var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt \
+            -keystore /opt/kafka/data/service-ca.p12 \
+            -storepass password \
+            -noprompt
+        containers:
+        - name: debezium
+          image: quay.io/jhernand/kafka:latest
+          volumeMounts:
+          - name: config
+            mountPath: /opt/kafka/config
+          - name: data
+            mountPath: /opt/kafka/data
+          env:
+          - name: KAFKA_LOG4J_OPTS
+            value: "-Dlog4j.configuration=file:/opt/kafka/config/connect-log4j.properties"
+          - name: KAFKA_HEAP_OPTS
+            value: "-Xmx512m"
+          - name: EXTRA_ARGS
+            value: ""
+          command:
+          - /opt/kafka/bin/connect-standalone.sh
+          - /opt/kafka/config/connect.properties
+          - /opt/kafka/config/debezium.properties

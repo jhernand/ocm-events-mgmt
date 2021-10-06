@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+
+    {
+      "name": "server",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "cmd/events-mgmt",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "server",
+        "configs/server.yaml"
+      ]
+    },
+    {
+      "name": "producer",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "cmd/events-mgmt",
+      "cwd": "${workspaceFolder}",
+      "args": [
+        "producer",
+        "configs/producer.yaml"
+      ]
+    },
+    {
+      "name": "client",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": ".",
+      "cwd": "${workspaceFolder}",
+      "args": []
+    }
+  ]
+}
